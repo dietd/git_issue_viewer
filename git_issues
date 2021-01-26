@@ -1,0 +1,166 @@
+#!/usr/bin/env python3
+
+import sys
+import requests
+import json
+
+from PyQt5 import QtCore, QtWidgets, QtGui
+from PyQt5.QtWidgets import *
+from PyQt5.QtGui import *
+from PyQt5.QtCore import *
+
+# Issue object is basically a placeholder for entry on list.
+# It is updated whenever we switch a page
+class issue(QWidget):
+    def __init__(self):
+        super().__init__()
+
+        self.layout = QVBoxLayout(self)
+        
+        self.title_label = QLabel()
+        self.author_id_label = QLabel()
+        self.state_label = QLabel()
+
+        self.layout.addWidget(self.title_label)
+        self.layout.addWidget(self.author_id_label)
+        self.layout.addWidget(self.state_label)
+
+        self.url = None
+
+    def update(self, issue_dict):
+        
+        self.url = issue_dict['url']
+        self.title_label.setText(issue_dict['title'])
+        self.author_id_label.setText("#" + str(issue_dict['number']) + " opened by " + issue_dict['user']['login'])
+        self.state_label.setText("Status: " + issue_dict['state'])
+
+    def hide(self):
+        self.title_label.setText("")
+        self.author_id_label.setText("")
+        self.state_label.setText("")
+
+
+
+#Navbar controls the navigation of app
+class navbar(QWidget):
+    def __init__(self, window, max_page=1):
+        super().__init__()
+
+        self.layout = QHBoxLayout(self)
+
+        # Set current page number being shown
+        # and the max page number we can have
+        self.max_page = max_page
+        self.cur_page = 0
+
+        # Set buttons and add them to the window
+        self.back_button = QToolButton()
+        self.forward_button = QToolButton()
+        
+        self.back_button.clicked.connect(self.back)
+        self.forward_button.clicked.connect(self.forward)
+        
+        self.back_button.setArrowType(Qt.LeftArrow)
+        self.forward_button.setArrowType(Qt.RightArrow)
+        
+        self.layout.addWidget(self.back_button)
+        self.layout.addWidget(self.forward_button)
+        
+        # Set the window
+        self.window = window
+
+    def back(self):
+        if (self.cur_page > 0):
+            self.cur_page -= 1
+            self.window.update_issues(self.cur_page)
+
+    def forward(self):
+        if (self.cur_page < self.max_page):
+            self.cur_page += 1
+            self.window.update_issues(self.cur_page)
+
+class second_window(QWidget):
+    def __init__(self):
+        super().__init__()
+
+        # Add layout to the window to set items
+        self.layout = QHBoxLayout(self)
+        VB = QVBoxLayout()
+        self.layout.addLayout(VB)
+        
+        # Dictionary Entry of specific issue (none initially)
+        self.issue_entry = None
+
+        # Title, ID, Case, Author, Time
+        self.title_label = QLabel()
+        self.author_id_label = QLabel()
+        self.state_label = QLabel()
+        self.time_label = QLabel()
+
+        # Body of Message
+        self.body_label = QLabel()
+
+    def update(self, url):
+        content = requests.get(url)
+        issue_dict = json.loads(content.content)
+
+        self.title_label.setText(issue_dict['title'])
+        self.author_id_label.setText("#" + str(issue_dict['number']) + " opened by " + issue_dict['user']['login'])
+        self.state_label.setText("Status: " + issue_dict['state'])
+        self.time_label.setText("Updated at: " +  issue_dict['updated_at'] + " ; Created at: " + issue_dict['created_at'])
+
+        
+        
+
+
+        
+# The main window currently houses the current stuff 
+class main_window(QWidget):
+
+    # Initialize the window
+    def __init__(self):
+        super().__init__()
+
+        # Add layout to the window to set items
+        self.layout = QHBoxLayout(self)
+        VB = QVBoxLayout()
+        self.layout.addLayout(VB)
+
+        # Get the URL of issues and turn it from JSON to dictionary
+        url = "https://api.github.com/repos/walmartlabs/thorax/issues"
+        content = requests.get(url)
+        self.issue_dict = json.loads(content.content)
+
+        # Create an array of 10 new issues and add them to the layout
+        self.issue_array = []
+        
+        for i in range(10):
+            
+            new_issue = issue()
+
+            self.issue_array.append(new_issue)
+            VB.addWidget(new_issue)
+
+        self.update_issues(0)
+
+        self.navbar = navbar(self, len(self.issue_dict) // 10)
+        VB.addWidget(self.navbar)
+
+    # Update the values in the issues array based on the page number
+    def update_issues(self, page_num):
+        
+        for i in range(page_num * 10, (page_num * 10) + 10):
+            
+            if (i < len(self.issue_dict)):
+                entry = self.issue_dict[i]
+                self.issue_array[i % 10].update(entry)
+            else:
+                self.issue_array[i % 10].hide()
+        
+
+if __name__ == "__main__":
+    app = QtWidgets.QApplication(sys.argv)
+    w = main_window()
+    w.setGeometry(500, 300, 800, 600)
+    w.show()
+    sys.exit(app.exec_())
