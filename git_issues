@@ -12,36 +12,52 @@ from PyQt5.QtCore import *
 # Issue object is basically a placeholder for entry on list.
 # It is updated whenever we switch a page
 class issue(QWidget):
-    def __init__(self):
+    def __init__(self, window):
         super().__init__()
 
         self.layout = QVBoxLayout(self)
         
-        self.title_label = QLabel()
-        self.author_id_label = QLabel()
-        self.state_label = QLabel()
+        self.content_label = QLabel()
+        self.content_label.setTextFormat(Qt.RichText)
+        self.content_label.setFixedWidth(500)
 
-        self.layout.addWidget(self.title_label)
-        self.layout.addWidget(self.author_id_label)
-        self.layout.addWidget(self.state_label)
+        self.view_button = QToolButton()
+        self.view_button.setText("View Issue")
+        self.view_button.clicked.connect(self.click)
+
+        self.layout.addWidget(self.content_label)
+        self.layout.addWidget(self.view_button)
 
         self.url = None
+        self.window = window
 
     def update(self, issue_dict):
         
         self.url = issue_dict['url']
-        self.title_label.setText(issue_dict['title'])
-        self.author_id_label.setText("#" + str(issue_dict['number']) + " opened by " + issue_dict['user']['login'])
-        self.state_label.setText("Status: " + issue_dict['state'])
+
+        title = "<b>" + issue_dict['title'] + "</b>"
+        author_id = "#" + str(issue_dict['number']) + " opened by " + "<em>" + issue_dict['user']['login'] + "</em>"
+        
+        if (issue_dict['state'] == "open"):
+            state = "<b>Status</b>: " + "<span style='color:green'>" + issue_dict['state'] + "</span>"
+        else:
+            state = "<b>Status</b>: " + "<span style='color:red'>" + issue_dict['state'] + "</span>"
+
+        self.content_label.setText(title + '<br>' + author_id + '<br>' + state + '<br>')
+        self.view_button.show()
 
     def hide(self):
-        self.title_label.setText("")
-        self.author_id_label.setText("")
-        self.state_label.setText("")
+        self.content_label.setText("")
+        self.view_button.hide()
+
+    def click(self):
+        self.window.window.second_window.update(self.url)
+        self.window.window.update()
 
 
 
-#Navbar controls the navigation of app
+# Navbar controls the navigation of app
+# and updates its window accordingly
 class navbar(QWidget):
     def __init__(self, window, max_page=1):
         super().__init__()
@@ -79,88 +95,195 @@ class navbar(QWidget):
             self.cur_page += 1
             self.window.update_issues(self.cur_page)
 
-class second_window(QWidget):
+# The comment holds comment information
+# and can be updated by putting in a dictionary
+class comment(QWidget):
     def __init__(self):
         super().__init__()
 
+        self.layout = QVBoxLayout(self)
+        self.content_label = QLabel()
+        self.content_label.setTextFormat(Qt.RichText)
+        self.layout.addWidget(self.content_label)
+
+    def update(self, comment_dict):
+
+        user = "<b>Comment by user</b>:" + comment_dict['user']['login']
+        time = "Created at: <em>" + comment_dict['created_at'] + "</em>"
+        body = comment_dict['body']
+
+        self.content_label.setText(user + "<br>" + time + "<br>" + body)
+
+
+
+# The second window gives more information about the issue
+class second_window(QWidget):
+    def __init__(self, window):
+        super().__init__()
+
         # Add layout to the window to set items
-        self.layout = QHBoxLayout(self)
-        VB = QVBoxLayout()
-        self.layout.addLayout(VB)
+        self.layout = QVBoxLayout(self)
         
         # Dictionary Entry of specific issue (none initially)
         self.issue_entry = None
 
-        # Title, ID, Case, Author, Time
-        self.title_label = QLabel()
-        self.author_id_label = QLabel()
-        self.state_label = QLabel()
-        self.time_label = QLabel()
+        # Label for content
+        self.content_label = QLabel()
+        self.content_label.setTextFormat(Qt.RichText)
+        self.content_label.setFixedWidth(500)
+        self.layout.addWidget(self.content_label)
 
-        # Body of Message
-        self.body_label = QLabel()
+        # Create an array for the comments
+        self.comments_array = []
+        for i in range(5):
+            self.comments_array.append(comment())
+
+        # Keep track of how many comments on each page
+        self.comment_count = 5
+
+        # Keep track of page
+        self.comment_page = 0
+        
+        # Create an array to keep comment objects
+        self.comment_array = []
+        for i in range(self.comment_count):
+            c = comment()
+            self.layout.addWidget(c)
+            self.comment_array.append(c)
+
+        # Keep track of comment dictionary and window as they will be updated
+        self.comment_dict = None
+        self.window = window
+
+        # Add a back button
+        self.back_button = QPushButton(" < Back ")
+        self.back_button.clicked.connect(self.click)
+        self.layout.addWidget(self.back_button)
+
+
 
     def update(self, url):
+        
+        # Get the content of the issue, then update
         content = requests.get(url)
         issue_dict = json.loads(content.content)
-
-        self.title_label.setText(issue_dict['title'])
-        self.author_id_label.setText("#" + str(issue_dict['number']) + " opened by " + issue_dict['user']['login'])
-        self.state_label.setText("Status: " + issue_dict['state'])
-        self.time_label.setText("Updated at: " +  issue_dict['updated_at'] + " ; Created at: " + issue_dict['created_at'])
-
         
+        title = "<b>" + issue_dict['title'] + "</b>"
+        author_id = "#" + str(issue_dict['number']) + " opened by " + "<em>" + issue_dict['user']['login'] + "</em>"
+        state = "<b>Status</b>: " + issue_dict['state']
+        time = "Updated at: " +  issue_dict['updated_at'] + " ; Created at: " + issue_dict['created_at']
+        body = issue_dict['body'] 
+        self.content_label.setText(title + "<br>" + author_id + "<br>" + state + "<br>" + time + "<br>" * 2 + body)
         
+        # Keep track of comments dictionary, then update
+        comment_content = requests.get(issue_dict['comments_url'])
+        self.comment_dict = json.loads(comment_content.content)
+        self.update_comments(0)
+
+
+    def update_comments(self, page_num):
+
+        for i in range(self.comment_count):
+            comment = self.comment_array[i]
+            if (i < len(self.comment_dict)):
+                comment.show()
+                comment.update(self.comment_dict[i + self.comment_page * self.comment_count])
+            
+    def click(self):
+        self.window.update()
 
 
         
 # The main window currently houses the current stuff 
-class main_window(QWidget):
+class first_window(QWidget):
 
     # Initialize the window
-    def __init__(self):
+    def __init__(self, window, issue_count=5):
         super().__init__()
 
         # Add layout to the window to set items
-        self.layout = QHBoxLayout(self)
-        VB = QVBoxLayout()
-        self.layout.addLayout(VB)
+        self.layout = QVBoxLayout(self)
 
         # Get the URL of issues and turn it from JSON to dictionary
         url = "https://api.github.com/repos/walmartlabs/thorax/issues"
         content = requests.get(url)
         self.issue_dict = json.loads(content.content)
 
-        # Create an array of 10 new issues and add them to the layout
+        # Set parent window
+        self.window = window
+
+        # Set the top label by getting the total number of entries and number of open ones
+        self.title_label = QLabel()
+        self.title_label.setTextFormat(Qt.RichText)
+
+        open_count = 0
+        for e in self.issue_dict:
+            if (e['state'] == "open"):
+                open_count += 1
+
+        self.title_label.setText("<b> Walmart Repo: Thorax </b><br>" \
+                + "<span style='background-color: lightgrey; width:500px; height:30px'>" \
+                + "<b>Total Issues</b>: " + str(len(self.issue_dict)) \
+                + " <em>Open Issues</em>: " + str(open_count) + "</span>")
+
+        self.layout.addWidget(self.title_label)
+
+
+        # Create an array of issue_count new issues and add them to the layout
+        self.issue_count = issue_count
         self.issue_array = []
         
-        for i in range(10):
+        for i in range(self.issue_count):
             
-            new_issue = issue()
+            new_issue = issue(self)
 
             self.issue_array.append(new_issue)
-            VB.addWidget(new_issue)
+            self.layout.addWidget(new_issue)
 
         self.update_issues(0)
 
         self.navbar = navbar(self, len(self.issue_dict) // 10)
-        VB.addWidget(self.navbar)
+        self.layout.addWidget(self.navbar)
 
     # Update the values in the issues array based on the page number
     def update_issues(self, page_num):
         
-        for i in range(page_num * 10, (page_num * 10) + 10):
+        for i in range(page_num * self.issue_count, (page_num * self.issue_count) + self.issue_count):
             
             if (i < len(self.issue_dict)):
                 entry = self.issue_dict[i]
-                self.issue_array[i % 10].update(entry)
+                self.issue_array[i % self.issue_count].update(entry)
             else:
-                self.issue_array[i % 10].hide()
+                self.issue_array[i % self.issue_count].hide()
+
+
+class main_window(QMainWindow):
+    def __init__(self):
+        super().__init__()
         
+        self.setWindowTitle("Walmart Git Issue Viewer")
+
+        # Load all windows then add them to the layout stack
+        self.stacked_layout = QStackedLayout()
+        self.first_window = first_window(self, 5)
+        self.second_window = second_window(self)
+
+        self.stacked_layout.addWidget(self.first_window)
+        self.stacked_layout.addWidget(self.second_window)
+
+        # Set central widget to be the one shown
+        self.central_widget = QWidget()
+        self.central_widget.setLayout(self.stacked_layout)
+        self.setCentralWidget(self.central_widget)
+        self.index = 0
+
+    def update(self):
+        self.index = not self.index
+        self.stacked_layout.setCurrentIndex(self.index)
 
 if __name__ == "__main__":
     app = QtWidgets.QApplication(sys.argv)
     w = main_window()
-    w.setGeometry(500, 300, 800, 600)
+    w.setGeometry(500, 300, 500, 800)
     w.show()
     sys.exit(app.exec_())
